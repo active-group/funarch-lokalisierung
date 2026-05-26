@@ -651,7 +651,7 @@ Deleting facts means deleting them from the \texttt{kv} table
 described in Section~\ref{sec:addonlydb}. As this table contained the
 \texttt{hash} primary key referenced by the \texttt{hashes} table, a
 migration of the database schema was necessary.  This migration
-introduces a new table \texttt{all_hashes} containing just the hashes
+introduces a new table \texttt{all\_hashes} containing just the hashes
 of all facts, past and present, with the new \texttt{kv} and
 \texttt{hashes} table referencing it:
 %
@@ -695,8 +695,8 @@ This section documents some architecturally relevant missteps that
 happened during development.
 
 \paragraph{Unstable hashes} The astute reader may have noticed that,
-while the \texttt{key_hash} column in the \texttt{hashes} table has a
-\texttt{FOREIGN KEY} constraint, \texttt{obsoleted_hash} does not.
+while the \texttt{key\_hash} column in the \texttt{hashes} table has a
+\texttt{FOREIGN KEY} constraint, \texttt{obsoleted\_hash} does not.
 While originally an omission, this is because in the early days a race
 condition in the database lower level had led to incorrect hash codes
 in that column.  Moreover, the entries in \texttt{hashes} contribute
