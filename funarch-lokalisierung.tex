@@ -694,8 +694,46 @@ the date of obsoletion.
 This section documents some architecturally relevant missteps that
 happened during development.
 
-\paragraph{Unstable hashes} 
-FIXME always constrain the database
+\paragraph{Unstable hashes} The astute reader may have noticed that,
+while the \texttt{key_hash} column in the \texttt{hashes} table has a
+\texttt{FOREIGN KEY} constraint, \texttt{obsoleted_hash} does not.
+While originally an omission, this is because in the early days a race
+condition in the database lower level had led to incorrect hash codes
+in that column.  Moreover, the entries in \texttt{hashes} contribute
+to the hash code of a fact, so we could not simply delete those
+entries.
+
+This problem was compounded by another error made when we implemented
+the thinning-out procedure---we would use this SQL to insert new
+entries into \texttt{hashes}:
+%
+\begin{verbatim}
+INSERT INTO hashes(key_hash, obsoleted_hash)
+\end{verbatim}
+%
+If the entry in question already exists, this creates a duplicate
+entry, which in turn would impact the hash of the corresponding fact,
+making the hashes in \texttt{kv} inconsistent, eventually leading to
+duplicate entries in \texttt{kv} as well, that differed only in their
+hashes.  Unfortunately, this problem was not spotted in testing, and
+shipping the corresponding release produced inconsistent databases
+that---addding insult to injury---quickly made the database grew
+\emph{larger} than its original size.
+
+Fixing this bug in the code was not sufficient.  We also had to clean
+up the database, removing the duplicates.  This had to be done in
+consistent fashion so that synchronization would not re-recreate the
+problem. Worse, the hashes are computed from the data in \texttt{kv},
+and we had introduced the problem along with code that deletes code in
+\texttt{kv}, making it impossible to fix all of the hashes
+consistently.
+
+We ended up changing the hash calculation to only depend on the data
+in \texttt{kv}, not on \texttt{hashes}.  This avoids duplicate facts,
+but allows differences in obsoletion to persist between MEGs.  To
+compensate for these, Lokalisierung treats facts introduced before
+this change differently from those after, only considering the
+``newest old'' fact.
 
 \paragraph{Incorrect projections} FIXME
 
@@ -703,9 +741,6 @@ FIXME always constrain the database
 protocol version
 
 \paragraph{Untestable configuration manager} FIXME
-
-\paragraph{Unnecessary projections} FIXME
-
 
 \paragraph{Overly abstract data modeling}
 
