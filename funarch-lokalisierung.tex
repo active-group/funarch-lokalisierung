@@ -194,6 +194,7 @@ implementation, launch and now decade-long operation.
 \paragraph{Overview}  FIXME
 
 \section{Add-Only Database}
+\label{sec:addonlydb}
 
 The lack of a central server and the limited availability of network
 bandwidth means that each MEG needs to store and access configuration
@@ -639,19 +640,62 @@ button to persist them.
 \section{Database Thinning and Protocol Evolution}
 
 In 2024, the client asked us to do something about the size of the
-database, which had grown to several hundred megabytes.  This made
-synchronization slow for new MEGs.
+database, which had grown to several hundred megabytes.  This was not
+so much a space problem as it made synchronization slow for new MEGs.
+Many of the facts being synchronized had long been obsoleted, and were
+not realistic candidates for restoration by the time machine.  Thus,
+our client commissioned us to reduce the size of the database by
+deleting such irrelevant facts---\textit{thinning}.
 
-% new DB schema
+Deleting facts means deleting them from the \texttt{kv} table
+described in Section~\ref{sec:addonlydb}. As this table contained the
+\texttt{hash} primary key referenced by the \texttt{hashes} table, a
+migration of the database schema was necessary.  This migration
+introduces a new table \texttt{all_hashes} containing just the hashes
+of all facts, past and present, with the new \texttt{kv} and
+\texttt{hashes} table referencing it:
+%
+\begin{verbatim}
+CREATE TABLE all_hashes (
+  hash BLOB PRIMARY KEY NOT NULL UNIQUE
+  );
+CREATE TABLE kv (
+  ...
+  FOREIGN KEY(hash) REFERENCES all_hashes(hash)
+  );
+CREATE TABLE hashes (
+  ...
+  FOREIGN KEY(key_hash) REFERENCES all_hashes(hash)
+  );
+\end{verbatim}
+%
+With this new schema, Lokalisierung could remove facts from the
+database by just deleting them from \texttt{kv}. We settled deleting
+facts that had been long obsoleted---before a certain date. The date
+of a fact's creating were recorded in the \texttt{meta} field of the
+\texttt{kv} table as a field in a JSON object, which SQLite
+fortunately can access directly.  Consequently, thinning out can be
+done with a single SQL \texttt{DELETE}, making it quite fast:
+%
+\begin{verbatim}
+DELETE FROM kv WHERE kv.hash IN
+(SELECT kv_obsoleted.hash
+FROM kv as kv_obsoleted, kv as kv_current, hashes
+WHERE hashes.obsoleted_hash=kv_obsoleted.hash AND
+      hashes.key_hash=kv_current.hash AND
+      json_extract(kv_current.meta, '$.datetime')
+        < :obsoletedBefore)
+\end{verbatim}
+%
+The \texttt{:obsoletedBefore} placeholder gets bound to cutoff for
+the date of obsolution.
 
-\section{Lessons learned}
+\section{Missteps}
+This section documents some architecturally relevant missteps that
+happened during development.
 
-events good 
-explicit data modeling good
-
-database constraints if possible
-
-\subsection{Missteps}
+\paragraph{Unstable hashes} 
+FIXME always constrain the database
 
 \paragraph{Incorrect projections} FIXME
 
@@ -662,14 +706,17 @@ protocol version
 
 \paragraph{Unnecessary projections} FIXME
 
-\paragraph{Unstable hashes} FIXME always constrain the database
 
 \paragraph{Overly abstract data modeling}
 
-\section{Conclusion}
-\label{sec:conclusion}
+\section{Lessons learned}
 
-FIXME
+events good 
+explicit data modeling good
+
+database constraints if possible
+
+
 
 \begin{acks}
   I thank Andreas Bernauer for the early design of the add-only
