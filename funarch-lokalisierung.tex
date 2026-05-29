@@ -743,6 +743,8 @@ key lessons from the Lokalisierung project:
 \item With event sourcing in place, it is not always necessary to
   implement projections in order to give efficient access to the
   current state.  Some indexing of the facts/events may be sufficient.
+\item The database had uniqueness requirements, which we had not
+  encoded as database constraints---we should have.
 \item Versioning the synchronization protocol from the beginning was
   instrumental in being able to evolve it over time. 
 \end{itemize}
