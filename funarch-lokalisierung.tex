@@ -766,20 +766,35 @@ code for the protocol version would thrown an exception on unknown
 protocols, including the new protocol---rendering this provision in
 the code useless.
 
-\paragraph{Untestable configuration manager} FIXME
+% \paragraph{Untestable configuration manager} FIXME
 
-\paragraph{Overly abstract data modeling}
+% \paragraph{Overly abstract data modeling}
 
 \section{Lessons learned}
 
-events good 
-explicit data modeling good
-
-database constraints if possible
-
-versioning protocols is good
-
-see if you can cleverly index your events
+Functional programming and F\# have served us well to keep the
+architecture open for extensions and changes over the years.  Here are
+key lessons from the Lokalisierung project:
+%
+\begin{itemize}
+\item The purely functional implementation of the core
+  of the synchronization algorithm made it amenable to property-based
+  testing.  This enabled us to establish the critical correctness
+  property of the algorithm.
+\item The facts-/events-based architecture enabled us to establish key
+  functionality: Peer-to-peer synchronization and the time machine.
+  Both would have been much more difficult with a traditional
+  state-based database design.
+\item While events are a good basis for persistence, it is still a
+  good idea to have an explicit data model in the code itself to
+  implement more complex functionality such as the diff-based
+  configuration UI, and the time machine.
+\item With event sourcing in place, it is not always necessary to
+  implement projections in order to give efficient access to the
+  current state.  Some indexing of the facts/events may be sufficient.
+\item Versioning the synchronization protocol from the beginning was
+  instrumental in being able to evolve it over time. 
+\end{itemize}
 
 \begin{acks}
   I thank Andreas Bernauer for the early design of the add-only
