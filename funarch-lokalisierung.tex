@@ -52,8 +52,8 @@
   highlight how the event-based architecture supports synchronization
   but also enables flexibility for changes after the original rollout
   such as undoing configuration changes, and database thin out.  We
-  also reflect on some design and implementation mistakes during its
-  10-year history.
+  also reflect on some design and implementation mistakes we made during its
+  10-year development.
 \end{abstract}
 
 %%
@@ -97,18 +97,18 @@ tasked with implementing an application for a large
 auto-inspection-shop organization for configuring its new fleet of
 over 1000 mobile devices.
 
-Each auto-inspection shop has multiple lanes, each of which can take
-in a car.  At the end of each lane sits a desk closet with a printer
-and various pieces of inspection equipment.  Previously, the closed
+Each auto-inspection shop has multiple lanes.
+At the end of each lane sits a desk closet with a printer
+and inspection equipment.  Previously, the closet
 had also contained a desktop PC permanently hooked up to this
-equipment.  The organization had decided to replace the closed-bound
+equipment.  The organization had decided to replace the closet-bound
 PCs by mobile devices (called \textit{MEG}s), each assigned to an
-employee rather than a place. Employees move around frequently, both
+employee rather than a closet. Employees move around frequently, both
 between the lanes of a single shop and also between shops.
 
-Each time a MEG operates in a different lane, it needs to connect to
-the equipment at that lane. The equipment is accessible
-wirelessly. However, various pieces of software inspection needed
+Each time a MEG operates in a different lane, it needs to (wirelessly)
+connect to
+the equipment at that lane. However, various pieces of software inspection needed
 reconfiguring. Previously, this had been a laborious manual process
 that involved typing in MAC addresses, opening the printer
 configuration dialog etc.
@@ -121,48 +121,45 @@ organization lacked the infrastructure to operate a central server.
 Getting the data live from such a server would have been unrealistic
 anyway---auto-shop WiFi is not the most reliable, and the
 organization's network did not have enough capacity to support
-Lokalisierung. This constraint led all the organization's other
-software suppliers to drop out of the project.
+Lokalisierung.
 
 We designed an \textit{append-only} data layer that stores
 \textit{facts}, as opposed to traditional state-based databases. This
-enabled us to tackle the project, resulting in a successful
+design enabled us to tackle the project, resulting in a successful
 implementation, launch and now decade-long operation.
 
 \paragraph{Overview} We start by describing the database design in
 Section~\ref{sec:addonlydb}.  The synchronization algorithm follows in
 Section~\ref{sec:synchronization}, and we discuss conflict resolution
-in \label{sec:conflicts}.  Section~\ref{sec:time-machine} describes
+in Section~\ref{sec:conflicts}.  Section~\ref{sec:time-machine} describes
 the time-machine facility for reverting changes.
 Section~\ref{sec:thinning} recounts recent development on reducing
 database size and synchronization time.  We summarize some missteps in
-Section~\label{sec:missteps}, and conclude with lessons learned in
+Section~\ref{sec:missteps}, and conclude with lessons learned in
 Section~\ref{sec:lessons-learned}.
 
-\section{Add-Only Database}
+\section{Append-Only Database}
 \label{sec:addonlydb}
 
 The lack of a central server and the limited availability of network
 bandwidth means that each MEG needs to store and access configuration
-data locally. Moreover, the MEGs need to synchronize amongst each
-other.  This exposes Lokalisierung to the \textit{CAP
-  theorem}~\cite{CAP} on distributed databases, which puts limits on
-the implementation of distributed databases, specifically those that
-store mutable state.
+data locally. Moreover, the MEGs need to synchronize.
+This exposes Lokalisierung to the \textit{CAP
+  theorem}~\cite{CAP}, which puts limits on distributed databases
+which store mutable state.
 
 Here is the problem: A lane is configured to be associated with
 printer $A$, which breaks.  A user changes the configuration to point
 to printer $B$ on MEG $M_1$.  MEG $M_2$, still configured to printer
-$A$. It might synchronize with $M_1$, but should it just replace
-printer $A$ by $B$ in its printer database?  How does it know which
-printer is the correct one?  There might be timestamps associated with
-the two different printer configurations, and we might pick the newest
-one. However, this requires synchronized clocks and the absence.
-Also, as we would find out, changes would often happen in close
-temporal proximity. Just storing the seemingly ``current
-configuration'' would lead to confusing and difficult-to-trace
-situations where somebody's configuration would be overriden without
-explanation.
+$A$, synchronizes with $M_1$, but should it just replace printer $A$
+by $B$ in its printer database?  How does it know which printer is the
+correct one?  There might be timestamps associated with the two
+different printer configurations, and we might pick the newest
+one. Alas, as we would find out, changes would often happen in close
+temporal proximity and independently of one another. Just storing the
+seemingly ``current configuration'' would lead to confusing and
+difficult-to-trace situations where somebody's configuration would be
+overriden without explanation.
 
 Consequently, instead of a conventional state-based database for the
 configuration data, we chose an approach based on storing
@@ -177,14 +174,14 @@ document events.  (The term ``event sourcing'' was not known to us at
 the time.)
 
 The pool of facts may have several facts pertaining to a single
-configuration setting<. We use causal order to disambiguate: If a fact
+configuration setting. We use causal order to disambiguate: If a fact
 $F_2$ is created that affects the same setting as a fact $F_1$
 \emph{that is in the local database when $F_2$ is created}, we note
 that $F_2$ \textit{obsoletes} $F_1$.
 
 While there are specialized databases for events, we chose to use
-SQLite for storing the facts~\cite{SQLite}.  SQLite requires no
-complicated client-server setup and has extensive tool support.  Here
+SQLite for storing the facts~\cite{SQLite}, which requires no
+client-server setup and has extensive tool support.  Here
 is the initial database schema, with table \texttt{kv} for storing the
 facts themselves, and table \texttt{hashes} for storing the obsoletion relationship:
 %
@@ -202,38 +199,30 @@ CREATE TABLE hashes (
   FOREIGN KEY(key_hash) REFERENCES kv(hash));
 \end{verbatim}
 %
-The \texttt{guid} field is a unique UID that identifies the subject of
+The \texttt{guid} field is a unique id that identifies the subject of
 a configuration setting, typically a specific auto shop or lane.  The
 \texttt{property} identifies a particular setting, such as
-\texttt{printerconfiguration} or \texttt{cdcconfiguration}, the latter
-for configuring a particular piece of hardware.  Each fact comes with
-metadata in JSON format noting user, machine, and time:
-%
-\begin{verbatim}
-{"user":"mike","machine":"TOURVEL",
- "datetime":"2016-05-04T12:18:47.6872020+00:00"}
-\end{verbatim}
-%
+\texttt{printerconfiguration}.  Each fact comes with
+metadata in JSON format noting user, machine, and time.
 The \texttt{hashes} table relates ``newer'' facts to the ones they
 obsolete. A view combines both tables into a cleaned-up table of
 current facts:
 %
 \begin{verbatim}
 CREATE VIEW kvCurrent AS
-SELECT hash,guid,property,value,meta
-FROM kv
+SELECT hash,guid,property,value,meta FROM kv
 WHERE kv.hash NOT IN
   (SELECT obsoleted_hash FROM hashes)
 \end{verbatim}
 %
 With this schema in place, we built a database-access layer in the
 code itself, written in F\#.  While it would have been possible to
-just use a SQLite database library directly from the application
+just use SQL directly from the application
 code, this has several architectural drawbacks:
 %
 \begin{itemize}
-\item Application code would contain SQL code directly, coupling it to
-  the database schema, and making the latter difficult to change.
+\item The SQL is coupled to
+  the database schema, making the latter difficult to change.
 \item A direct reference to a SQLite library would couple the
   application code to SQLite, making the latter difficult to
   replace. 
@@ -246,32 +235,27 @@ able to use the database access layer without SQLite, using simple F\#
 collections, particularly for testing.  (This would become more relevant
 later in the project, see Section~\ref{sec:time-machine}.)
 
-Thus, we needed a mechanism for \textit{depencency
-  injection}~\cite{FowlerEventDependencyInjection2004}, and
+Thus, we needed a mechanism for \textit{dependency
+  injection}~\cite{FowlerEventDependencyInjection2004}.  We
 used a free-monad approach~\cite{Swierstra2008} with a data type for
 database operations:
 %
 \begin{verbatim}
 type 'a Op =
-  | Return of 'a
-  | Get of GuidT * PropertyT * (ValueT [] -> 'a Op)
-  | Put of FactT * (HashT -> 'a Op)
-  ...
-  | Atomically of ('a Op) Op
+ | Return of 'a
+ | Get of GuidT * PropertyT * (ValueT [] -> 'a Op)
+ | Put of FactT * (HashT -> 'a Op)
+ ...
+ | Atomically of ('a Op) Op
 \end{verbatim}
 %
-The \texttt{Atomically} operation is for transactions. A set of
-convenience functions, a \texttt{bind} function, and a builder for
-F\# \textit{computation expressions}~\cite{PetricekSyme2014}:
+The \texttt{Atomically} operation is for transactions. The
+\texttt{bind} function is standard, as is the builder for F\#
+\textit{computation expressions}~\cite{PetricekSyme2014}:
 %
 \begin{verbatim}
-let ret a = Return a
-let get guid prop = Get (guid, prop, ret)
-let put fact = Put(fact, ignoreAndReturn ())
-...
 let atomically (op: 'a Op): 'a Op =
   Atomically (bind op (fun v -> Return (Return v)))
-
 let rec bind<'b, 'a> (opB: 'b Op) (f: 'b -> 'a Op)
       : ('a Op) =
     match opB with
@@ -280,10 +264,10 @@ let rec bind<'b, 'a> (opB: 'b Op) (f: 'b -> 'a Op)
       Get (g, p, (fun v -> bind (cont v) f))
     | Put (d, cont) ->
       Put (d, (fun v -> bind (cont v) f))
+    ...
     | Atomically op ->
       Atomically (bind op (fun op' ->
                            Return (bind op' f)))
-
 type DbBuilder() =
     member _this.Return(v) = Return v
     member _this.ReturnFrom(m) = m
@@ -302,21 +286,21 @@ accessing SQLite, one using in-memory F\# collections.
 
 \begin{figure}[tb]
   \centering
-  \includegraphics[width=0.8\columnwidth]{merkle-tree}
+  \includegraphics[width=0.65\columnwidth]{merkle-tree}
   \caption{Merkle tree}
   \label{fig:merkle-tree}
 \end{figure}
 
 With the facts database and obsoletion relation in place, it becomes
 feasible to synchronize the facts between two MEGs efficiently. The
-standard method for this is a \textit{Merkle tree}:
+standard method for this is a \textit{Merkle tree}~\cite{Merkle1987}:
 
 A Merkle tree sits atop the set of facts, each of which has a
 hash---see Figure~\ref{fig:merkle-tree}. The individual hashes $H_i$
 of facts $F_i$ form the leaves of the tree. Going up the tree, each
-node points to a number of nodes below, and is labelled with a hash
-that is the result of combining the hashes from the level
-below. This means that the hash that labels each node summarizes the
+node is labelled with a hash
+that is the result of combining the hashes from the its child
+nodes. This means that the hash that labels each node summarizes the
 facts below.  The top hash summarizes the entire set of facts.
 
 The synchronization algorithm implicitly constructs the Merkle tree
@@ -325,18 +309,17 @@ down the tree.  The algorithm traverses the tree top-down, sending
 hashes to the other side, and keeping a set of candidate hashes whose
 facts might need transmitting to the other side.
 
-If the top hashes agree, both sets of facts are the same, and no
-synchronization is necessary. Otherwise, both sides need to descend a
-level, and send its hashes to the other side as potential
-candidates. Those hashes that agree can be removed from the
-candidates, and the algorithm descends to the next level only from these
-candidates. When it finally reaches the lowest level, the remaining
+If the top hashes agree, no
+synchronization is necessary. Otherwise, both sides descend a
+level, and each sends its hashes to the other side as potential
+candidates. The hashes that agree can be removed from the
+candidates, and the algorithm descends to the next level only from the
+candidates that remain. When it finally reaches the lowest level, the remaining
 candidates identify those hashes that need to be transmitted to the
 other side.
 
-Each MEG determines when to invoke the algorithm by sending UDP
-broadcasts containing the top hash into the local network on a number
-of occasions:
+An MEG triggers synchronization by sending UDP
+broadcasts containing the top hash into the local network
 %
 \begin{itemize}
 \item when the MEG enters a network (typically when the car containing
@@ -345,7 +328,7 @@ of occasions:
 \item when new facts were added.
 \end{itemize}
 %
-When an MEG receives such a UDP broadcast, it compares the broadcast's
+When an MEG receives such a broadcast, it compares the broadcast's
 top hash with its own, and, if they differ, engages in a
 synchronization with the other side. This tactic has proved
 exceedingly effective in keeping all MEGs sufficiently updated to be
@@ -373,17 +356,16 @@ type Msg =
 %
 The \texttt{IHaveFingerprints} message tells the other side for each
 successive level the \textit{fingerprints} of the candidates.  A
-fingerprint is just a combination of the hash of the corresponding
-node along with the path leading to that node from the root.  When the
+fingerprint combines the hash of the corresponding
+node with the path leading to that node from the root.  When the
 algorithm reaches the lowest level, it generates a
-\texttt{HereAreBlockHashes} message containing the blocks to be
+\texttt{Here\-Are\-Block\-Hashes} message containing the blocks to be
 transmitted to the other side.
-
 The signature of the algorithm function is as follows:
 \begin{verbatim}
 let synchronizationRound (allHashes: Set<Hash.T>)
                          (treeSet: MerkleTreeSet)
-                         (msg: Msg)
+                        (msg: Msg)
  : Choice<Msg * MerkleTreeSet, list<Hash.T>> = ...
 \end{verbatim}
 %
@@ -393,10 +375,10 @@ message to transmit to the other side along with a set of candidates
 for the next round, or the blocks received from the other side.
 
 The implementation of \texttt{synchronizationRound} is fairly
-involved, and many mistakes were made implementing it. However, the
-correctness of synchronization is easy to write as a QuickCheck
+involved, and many mistakes were made implementing it. However, the principal
+correctness of synchronization is a single QuickCheck
 property~\cite{QuickCheck2000} shown in
-Figure~\ref{fig:sync-quickcheck}.  The \texttt{checkSynchronizeWorked}
+Figure~\ref{fig:sync-quickcheck}.  The \texttt{check\-Synchronize\-Worked}
 function takes four sets of blocks, \texttt{blocks1} and
 \texttt{blocks1'} being the blocks present and received on one side,
 and \texttt{blocks2} and \texttt{blocks2'} on the other side.  This
@@ -417,15 +399,13 @@ let checkSynchronizeWorked (blocks1: list<Block<'A>>) (blocks2: list<Block<'A>>)
   Set.union hashes2 hashes2' |> should equal allHashes
   Set.isSubset (Set.ofList blocks1') (Set.ofList blocks2) |> should be True
   Set.isSubset (Set.ofList blocks2') (Set.ofList blocks1) |> should be True
-
 [<Test>]
 member x.``synchronization works for arbitrary lists of blocks`` () =
     Prop.forAll(Arb.from<Set<Block<byte[]>> * Set<Block<byte[]>>>) (fun (bs1, bs2) ->
         let blocks1 = Set.toList bs1
         let blocks2 = Set.toList bs2
         let (blocks1', blocks2') = synchronize schema1 blocks1 blocks2
-        checkSynchronizeWorked blocks1 blocks2 blocks1' blocks2'
-    )|> AssertProperty
+        checkSynchronizeWorked blocks1 blocks2 blocks1' blocks2') |> AssertProperty
 \end{verbatim}
   \caption{QuickCheck test for synchronization algorithm}
   \label{fig:sync-quickcheck}
@@ -434,27 +414,29 @@ member x.``synchronization works for arbitrary lists of blocks`` () =
 Synchronization is asynchronous to the application itself: The
 Communication component needs to call back into the application to
 retrieve available blocks and store blocks received in a
-synchronization run.  To that end, application supplies a
-\textit{synchronization context} of the following type:
+synchronization run.
 
-\begin{verbatim}
-type SyncContext<'A> when 'A : equality = {
-  ahash: 'A -> Hash.T
-  serializer: Serializer<'A>
-  getHashes: unit -> Async<list<Hash.T>>
-  getBlocks: list<Hash.T> -> Async<list<Block<'A>>>
-  saveBlocks: list<Block<'A>> -> Async<unit>
-}
-\end{verbatim}
-%
-This context abstracts over the type of the blocks \verb|'A|, even
-though this type is fixed in the application.  While this is generally
-good decoupling practice, it enabled development of the
-synchronization algorithm independently of the rest of the
-application, before the type of the blocks was even known.  More
-importantly, it simplified unit testing of the Communication
-component, where small, synthetic data blocks can be used rather than
-the structured values required by the Lokalisierung application.
+% To that end, application supplies a
+% \textit{synchronization context} of the following type:
+
+% \begin{verbatim}
+% type SyncContext<'A> when 'A : equality = {
+%   ahash: 'A -> Hash.T
+%   serializer: Serializer<'A>
+%   getHashes: unit -> Async<list<Hash.T>>
+%   getBlocks: list<Hash.T> -> Async<list<Block<'A>>>
+%   saveBlocks: list<Block<'A>> -> Async<unit>
+% }
+% \end{verbatim}
+% %
+% This context abstracts over the type of the blocks \verb|'A|, even
+% though this type is fixed in the application.  While this is generally
+% good decoupling practice, it enabled development of the
+% synchronization algorithm independently of the rest of the
+% application, before the type of the blocks was even known.  More
+% importantly, it simplified unit testing of the Communication
+% component, where small, synthetic data blocks can be used rather than
+% the structured values required by the Lokalisierung application.
 
 \section{Conflict Resolution}
 \label{sec:conflicts}
@@ -472,13 +454,12 @@ type Val<'a> when 'a : comparison =
 %
 During initial development, we assumed users would change settings
 mostly when in physical proximity to the lanes affected, and
-immediately propate them throughout the auto shop, making such
+immediately propagate them throughout the auto shop, making such
 conflicts rare.
-
 Therefore, we assumed such conflics could be resolved on the spot.  We
 made Lokalisierung detect conflicts after synchronization and display
 a dialog requiring users to resolve it.  (The \texttt{WithMeta} type
-contains the metadata from the append-only database, allowing the
+attaches the metadata from the append-only database, allowing the
 dialog to display information about who made a conflicting setting,
 when and and where.)
 
@@ -487,7 +468,7 @@ unworkable in practice, as our assumption about the frequency and
 nature of conflicts proved false.  From the users' perspective,
 Lokalisierung would pop up a dialog unpredictably.  Worse, it would
 appear on both MEGs involved in the synchronization, with no clear
-responsibility as to who should do what. We had not properly accounted
+responsibility as to who should resolve it. We had not properly accounted
 for the fact that we had created a distributed system.
 
 Our knee-jerk reaction was to automate filling out the dialog.  This
@@ -497,7 +478,6 @@ exchanged on the next synchronization, creating another conflicts, and
 so on, creating an avalanche of facts.  Fortunately, this was detected
 within a few minutes of deployment and stopped.  The lesson here was
 to now create synthetic facts ever.
-
 We ultimately settled on the following conflict strategy:
 %
 \begin{itemize}
@@ -511,7 +491,7 @@ We ultimately settled on the following conflict strategy:
 \end{itemize}
 %
 This strategy proved acceptable to the users, even though we were
-never able develop a good mental model of the usage
+never able to develop a good mental model of the usage
 patterns.
 
 \section{Data Modeling and Time Machine}
@@ -531,12 +511,11 @@ settings.  (Again, we never determined the usage pattern that would
 lead to this problem.)  Fortunately, the append-only database
 contained the entire history of configuration changes, so all old
 settings were still present.  Consequently, we set out to build a
-\textit{time machine} that would allow users to go back to any past
-setting state for a given shop.
+\textit{time machine} that would allow users to go back to a past
+state for a given shop.
 
 Note that this is not simply a matter of removing newer facts from the
-database: The nature of the append-only database does not allow it.
-Moreover, we wanted to preserve an audit log of changes and rollbacks.
+database: Synchronization would add them right back.
 Thus, Lokalisierung needs to make changes on top of whatever the
 current configuration is to re-create a past state.  Then we could
 compare it to current state, and re-play the differences on top of the
@@ -589,7 +568,8 @@ button to persist them.
 
 In 2024, the client asked us to do something about the size of the
 database, which had grown to several hundred megabytes.  This was not
-so much a space problem as it made synchronization slow for new MEGs.
+so much a space problem as it made synchronization for new MEGs take a
+long time.
 Many of the facts being synchronized had long been obsoleted, and were
 not realistic candidates for restoration by the time machine.  Thus,
 our client commissioned us to reduce the size of the database by
@@ -598,27 +578,24 @@ deleting such irrelevant facts---\textit{thinning}.
 Deleting facts means deleting them from the \texttt{kv} table
 described in Section~\ref{sec:addonlydb}. As this table contained the
 \texttt{hash} primary key referenced by the \texttt{hashes} table, a
-migration of the database schema was necessary.  This migration
+migration of the database schema was necessary.  The migration
 introduces a new table \texttt{all\_hashes} containing just the hashes
-of all facts, past and present, with the new \texttt{kv} and
+of all facts, with the new \texttt{kv} and
 \texttt{hashes} table referencing it:
 %
 \begin{verbatim}
 CREATE TABLE all_hashes (
-  hash BLOB PRIMARY KEY NOT NULL UNIQUE
-  );
+  hash BLOB PRIMARY KEY NOT NULL UNIQUE);
 CREATE TABLE kv (
   ...
-  FOREIGN KEY(hash) REFERENCES all_hashes(hash)
-  );
+  FOREIGN KEY(hash) REFERENCES all_hashes(hash));
 CREATE TABLE hashes (
   ...
-  FOREIGN KEY(key_hash) REFERENCES all_hashes(hash)
-  );
+  FOREIGN KEY(key_hash) REFERENCES all_hashes(hash));
 \end{verbatim}
 %
 With this new schema, Lokalisierung could remove facts from the
-database by just deleting them from \texttt{kv}. We settled deleting
+database by just deleting them from \texttt{kv}. We settled on deleting
 facts that had been long obsoleted---before a certain date. The date
 of a fact's creating were recorded in the \texttt{meta} field of the
 \texttt{kv} table as a field in a JSON object, which SQLite
@@ -635,7 +612,7 @@ WHERE hashes.obsoleted_hash=kv_obsoleted.hash AND
         < :obsoletedBefore)
 \end{verbatim}
 %
-The \texttt{:obsoletedBefore} placeholder gets bound to cutoff for
+The \texttt{:obsoletedBefore} placeholder gets bound to the cutoff for
 the date of obsoletion.
 
 \section{Missteps}
@@ -648,7 +625,7 @@ happened during development.
 while the \texttt{key\_hash} column in the \texttt{hashes} table has a
 \texttt{FOREIGN KEY} constraint, \texttt{obsoleted\_hash} does not.
 While originally an omission, this is because in the early days a race
-condition in the database lower level had led to incorrect hash codes
+condition in the lower layer of the database code had led to incorrect hash codes
 in that column.  Moreover, the entries in \texttt{hashes} contribute
 to the hash code of a fact, so we could not simply delete those
 entries.
@@ -664,19 +641,19 @@ INSERT INTO hashes(key_hash, obsoleted_hash)
 If the entry in question already exists, this creates a duplicate
 entry, which in turn would impact the hash of the corresponding fact,
 making the hashes in \texttt{kv} inconsistent, eventually leading to
-duplicate entries in \texttt{kv} as well, that differed only in their
+duplicate entries in \texttt{kv} that differed only in their
 hashes.  Unfortunately, this problem was not spotted in testing, and
 shipping the corresponding release produced inconsistent databases
 that---addding insult to injury---quickly made the database grew
 \emph{larger} than its original size.
 
 Fixing this bug in the code was not sufficient.  We also had to clean
-up the database, removing the duplicates.  This had to be done in
+up the database, removing the duplicates.  This had to be done in a
 consistent fashion so that synchronization would not re-recreate the
 problem. Worse, the hashes are computed from the data in \texttt{kv},
-and we had introduced the problem along with code that deletes code in
-\texttt{kv}, making it impossible to fix all of the hashes
-consistently.
+and we had introduced the problem along with code that deletes entries in
+\texttt{kv}, making it impossible to re-compute the hashes
+of these entries.
 
 We ended up changing the hash calculation to only depend on the data
 in \texttt{kv}, not on \texttt{hashes}.  This avoids duplicate facts,
@@ -685,9 +662,9 @@ compensate for these, Lokalisierung treats facts introduced before
 this change differently from those after, only considering the
 ``newest old'' fact.
 
-\paragraph{Incorrect projection} Being an event-sourced system,
-Lokalisierung's data of record is the set of facts. Adding new facts
-is very easy, but \emph{finding} information is somewhat indirect.
+\paragraph{Incorrect projection} As Lokalisierung is an event-sourced system,
+its data of record is the set of facts. Adding new facts
+is very easy, but \emph{finding} information is often slow.
 For example, Lokalisierung identifies the shop an MEG is in by looking
 up its IP subnet. To that end, the first version of Lokalisierung
 contained a \textit{locality cache}, a table mapping subnets to the
@@ -712,7 +689,7 @@ turned out to be faster than FsPickler.  The handshake at the
 beginning of synchronization would negotiate whether to use the new
 protocol---or the old one, if the Lokalisierung on the other side was
 still from the previous release. Unfortunately, the deserialization
-code for the protocol version would thrown an exception on unknown
+code for the protocol version would throw an exception on unknown
 protocols, including the new protocol---rendering this provision in
 the code useless.
 
@@ -732,19 +709,21 @@ key lessons from the Lokalisierung project:
   of the synchronization algorithm made it amenable to property-based
   testing.  This enabled us to establish the critical correctness
   property of the algorithm.
-\item The facts-/events-based architecture enabled us to establish key
+\item The event-based architecture enabled us to establish key
   functionality: Peer-to-peer synchronization and the time machine.
   Both would have been much more difficult with a traditional
   state-based database design.
+\item In a distributed system, conflicts occur even when the context
+  of the system suggests that they should not.
 \item While events are a good basis for persistence, it is still a
-  good idea to have an explicit data model in the code itself to
+  good idea to have an explicit data model in the code to
   implement more complex functionality such as the diff-based
   configuration UI, and the time machine.
 \item With event sourcing in place, it is not always necessary to
   implement projections in order to give efficient access to the
   current state.  Some indexing of the facts/events may be sufficient.
-\item The database had uniqueness requirements, which we had not
-  encoded as database constraints---we should have.
+\item The database had uniqueness requirements that we had not
+  encoded as constraints---we should have.
 \item Versioning the synchronization protocol from the beginning was
   instrumental in being able to evolve it over time. 
 \end{itemize}
