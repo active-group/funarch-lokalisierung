@@ -749,8 +749,22 @@ facts with property \texttt{subnet} directly---the delay is not
 noticeable to users. We subsequently deleted the cache and the code
 maintaining it.
 
-\paragraph{Protocol fail} FIXME serialization library, deserializing
-protocol version
+\paragraph{Protocol fail} For the synchronization protocol of the
+first version, we used the FsPickler library~\cite{FsPickler}, which
+provides a convenient and fast set of combinators for serializing and
+de-serializing F\# values.  Foreseeing future changes, we pre-fixed
+synchronization messages with a small header that did not go through
+FsPickler, and that contained a version number.  This was basically
+the correct call, as later versions of FsPickler changed the
+serialization format incompatibly. To improve stability of the
+protocol, we implemented our own serialization library, which also
+turned out to be faster than FsPickler.  The handshake at the
+beginning of synchronization would negotiate whether to use the new
+protocol---or the old one, if the Lokalisierung on the other side was
+still from the previous release. Unfortunately, the deserialization
+code for the protocol version would thrown an exception on unknown
+protocols, including the new protocol---rendering this provision in
+the code useless.
 
 \paragraph{Untestable configuration manager} FIXME
 
