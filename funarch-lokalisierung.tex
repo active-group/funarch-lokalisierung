@@ -735,7 +735,19 @@ compensate for these, Lokalisierung treats facts introduced before
 this change differently from those after, only considering the
 ``newest old'' fact.
 
-\paragraph{Incorrect projections} FIXME
+\paragraph{Incorrect projection} Being an event-sourced system,
+Lokalisierung's data of record is the set of facts. Adding new facts
+is very easy, but \emph{finding} information is somewhat indirect.
+For example, Lokalisierung identifies the shop an MEG is in by looking
+up its IP subnet. To that end, the first version of Lokalisierung
+contained a \textit{locality cache}, a table mapping subnets to the
+GUID of its shop, making lookup easy.  (A \textit{projection} in
+event-sourcing terminology.)  Unfortunately, the code creating the
+locality cache contained a bug (never found) that would result in
+incorrect entries. The solution turned out to just iterate over the
+facts with property \texttt{subnet} directly---the delay is not
+noticeable to users. We subsequently deleted the cache and the code
+maintaining it.
 
 \paragraph{Protocol fail} FIXME serialization library, deserializing
 protocol version
@@ -751,7 +763,9 @@ explicit data modeling good
 
 database constraints if possible
 
+versioning protocols is good
 
+see if you can cleverly index your events
 
 \begin{acks}
   I thank Andreas Bernauer for the early design of the add-only
