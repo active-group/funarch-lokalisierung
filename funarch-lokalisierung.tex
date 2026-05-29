@@ -127,12 +127,15 @@ We designed an \textit{append-only} data layer that stores
 enabled us to tackle the project, resulting in a successful
 implementation, launch and now decade-long operation.
 
-% identify locality by IP/mac address
-
-% FIXME: projections
-% FIXME: data-model
-
-\paragraph{Overview}  FIXME
+\paragraph{Overview} We start by describing the database design in
+Section~\ref{sec:addonlydb}.  The synchronization algorithm follows in
+Section~\ref{sec:synchronization}, and we discuss conflict resolution
+in \label{sec:conflicts}.  Section~\ref{sec:time-machine} describes
+the time-machine facility for reverting changes.
+Section~\ref{sec:thinning} recounts recent development on reducing
+database size and synchronization time.  We summarize some missteps in
+Section~\label{sec:missteps}, and conclude with lessons learned in
+Section~\ref{sec:lessons-learned}.
 
 \section{Add-Only Database}
 \label{sec:addonlydb}
@@ -293,6 +296,7 @@ includes two different interpreters for \texttt{Op} values, one
 accessing SQLite, one using in-memory F\# collections.
 
 \section{Synchronization}
+\label{sec:synchronization}
 
 \begin{figure}[tb]
   \centering
@@ -579,6 +583,7 @@ and display the corresponding changes, and offer an explicit ``Save''
 button to persist them.
 
 \section{Database Thinning and Protocol Evolution}
+\label{sec:thinning}
 
 In 2024, the client asked us to do something about the size of the
 database, which had grown to several hundred megabytes.  This was not
@@ -632,6 +637,8 @@ The \texttt{:obsoletedBefore} placeholder gets bound to cutoff for
 the date of obsoletion.
 
 \section{Missteps}
+\label{sec:missteps}
+
 This section documents some architecturally relevant missteps that
 happened during development.
 
@@ -712,6 +719,7 @@ the code useless.
 % \paragraph{Overly abstract data modeling}
 
 \section{Lessons learned}
+\label{sec:lessons-learned}
 
 Functional programming and F\# have served us well to keep the
 architecture open for extensions and changes over the years.  Here are
