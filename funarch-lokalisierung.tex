@@ -531,7 +531,7 @@ originally created for testing purposes paid off here as well.
 
 In order to coherently represent and display the changes that would be
 made, we first created an explicit data model for a shop's
-configuration, as well as one for the changes to it:
+configuration, as well as one for changes to it:
 %
 \begin{verbatim}
 type Locality = {
@@ -540,21 +540,20 @@ type Locality = {
   macAddress: Val<option<MacAddress>>
   networkPrinterConfiguration:
     Val<option<PrinterConfiguration>>
-  ...
-}
+  ... }
 type LocalityChangeDescription =
-  | SetDisplayName of string
-  | SetPlace of (PlaceGuid * PlaceChangeDescription)
+ | SetDisplayName of string
+ | SetPlace of (PlaceGuid * PlaceChangeDescription)
   ...
 type PlaceChangeDescription =
-  | SetDisplayName of string
-  | SetRank of int
-  ...
+ | SetDisplayName of string
+ | SetRank of int
+ ...
 \end{verbatim}
 %
-Note that these datatypes had previously been implicit, and
-Lokalisierung had turned configuration changes directly into facts and
-added them to database.  Users had to follow up mistakes with more
+These datatypes had previously been implicit, and
+Lokalisierung had turned configuration changes directly into facts.
+Users had to follow up mistakes with more
 changes.  Making both the \texttt{Locality} representation and the
 changes explicit not only helped us implement the time machine.  It
 also allowed us to decouple making the changes from persisting them.
@@ -600,7 +599,7 @@ facts that had been long obsoleted---before a certain date. The date
 of a fact's creating were recorded in the \texttt{meta} field of the
 \texttt{kv} table as a field in a JSON object, which SQLite
 fortunately can access directly.  Consequently, thinning out can be
-done with a single SQL \texttt{DELETE}, making it quite fast:
+done with a single, quite fast, SQL \texttt{DELETE}:
 %
 \begin{verbatim}
 DELETE FROM kv WHERE kv.hash IN
@@ -664,33 +663,32 @@ this change differently from those after, only considering the
 
 \paragraph{Incorrect projection} As Lokalisierung is an event-sourced system,
 its data of record is the set of facts. Adding new facts
-is very easy, but \emph{finding} information is often slow.
+is easy, but \emph{finding} information is often slow.
 For example, Lokalisierung identifies the shop an MEG is in by looking
 up its IP subnet. To that end, the first version of Lokalisierung
 contained a \textit{locality cache}, a table mapping subnets to the
-GUID of its shop, making lookup easy.  (A \textit{projection} in
+GUID of its shop.  (A \textit{projection} in
 event-sourcing terminology.)  Unfortunately, the code creating the
-locality cache contained a bug (never found) that would result in
-incorrect entries. The solution turned out to just iterate over the
-facts with property \texttt{subnet} directly---the delay is not
+cache contained a bug (never found) that would result in
+incorrect entries. The solution turned out to be to iterate over the
+facts with property \texttt{subnet}---the delay is not
 noticeable to users. We subsequently deleted the cache and the code
 maintaining it.
 
 \paragraph{Protocol fail} For the synchronization protocol of the
 first version, we used the FsPickler library~\cite{FsPickler}, which
-provides a convenient and fast set of combinators for serializing and
-de-serializing F\# values.  Foreseeing future changes, we pre-fixed
-synchronization messages with a small header that did not go through
-FsPickler, and that contained a version number.  This was basically
-the correct call, as later versions of FsPickler changed the
-serialization format incompatibly. To improve stability of the
+provides a convenient set of combinators for serializing and
+de-serializing F\# values.  We foresaw future changes such as
+incompatible changes to the FsPickler protocol, and prefixed
+synchronization messages with a header that did not go through
+FsPickler, containing a version number.  To improve stability of the
 protocol, we implemented our own serialization library, which also
 turned out to be faster than FsPickler.  The handshake at the
 beginning of synchronization would negotiate whether to use the new
 protocol---or the old one, if the Lokalisierung on the other side was
 still from the previous release. Unfortunately, the deserialization
 code for the protocol version would throw an exception on unknown
-protocols, including the new protocol---rendering this provision in
+protocols, including the new protocol, rendering this provision in
 the code useless.
 
 % \paragraph{Untestable configuration manager} FIXME
