@@ -451,32 +451,10 @@ type Val<'a> when 'a : comparison =
 | Conflict of Set<WithMeta<'a>>
 \end{verbatim}
 %
-During initial development, we assumed users would change settings
-mostly when in physical proximity to the lanes affected, and
-immediately propagate them throughout the car shop, making such
-conflicts rare.
-Therefore, we assumed such conflics could be resolved on the spot.  We
-made Lokalisierung detect conflicts after synchronization and display
-a dialog requiring users to resolve them.  (The \texttt{WithMeta} type
-attaches the metadata from the append-only database, allowing the
-dialog to display information about who made a conflicting setting,
-when and and where.)
+The \texttt{WithMeta} type attaches the metadata from the append-only
+database, allowing the dialog to display information about who made a
+conflicting setting, when and and where.
 
-This strategy seemed obvious to us at the time, but proved completely
-unworkable in practice, as our assumption about the frequency and
-nature of conflicts proved false.  From the users' perspective,
-Lokalisierung would pop up a dialog unpredictably.  Worse, it would
-appear on both MEGs involved in the synchronization, with no clear
-responsibility as to who should resolve it. We had not properly accounted
-for the fact that we had created a distributed system.
-
-Our knee-jerk reaction was to automate filling out the dialog.  This
-proved disastrous, as it would happen on both MEGs involved in the
-synchronization, creating two distinct resolution facts. These would be
-exchanged on the next synchronization, creating another conflicts, and
-so on, creating an avalanche of facts.  Fortunately, this was detected
-within a few minutes of deployment and stopped.  The lesson here was
-to not create synthetic facts ever.
 We ultimately settled on the following conflict strategy:
 %
 \begin{itemize}
@@ -619,6 +597,31 @@ the date of obsoletion.
 This section documents some architecturally relevant missteps that
 happened during development.
 
+\paragraph{Overeager conflict resolution} During initial development,
+we assumed users would change settings mostly when in physical
+proximity to the lanes affected, and immediately propagate them
+throughout the car shop, making conflicts rare.  Moreover, we
+assumed conflics could be resolved on the spot.  
+Lokalisierung would conflicts after synchronization and display a
+dialog requiring users to resolve them.
+
+This strategy seemed obvious to us at the time, but proved completely
+unworkable in practice, as our assumption about the frequency and
+nature of conflicts proved false.  From the users' perspective,
+Lokalisierung would pop up a dialog unpredictably.  Worse, it would
+appear on both MEGs involved in the synchronization, with no clear
+responsibility as to who should resolve it. We had not properly accounted
+for the fact that we had created a distributed system.
+
+Our knee-jerk reaction was to automate filling out the dialog.  This
+proved disastrous, as it would happen on both MEGs involved in the
+synchronization, creating two distinct resolution facts. These would be
+exchanged on the next synchronization, creating another conflicts, and
+so on, creating an avalanche of facts.  Fortunately, this was detected
+within a few minutes of deployment and stopped.  The lesson here was
+to not create synthetic facts ever.
+
+
 \paragraph{Unstable hashes} The astute reader may have noticed that,
 while the \texttt{key\_hash} column in the \texttt{hashes} table has a
 \texttt{FOREIGN KEY} constraint, \texttt{obsoleted\_hash} does not.
@@ -710,6 +713,7 @@ key lessons from the Lokalisierung project:
   functionality: Peer-to-peer synchronization and the time machine.
   Both would have been much more difficult with a traditional
   state-based database design.
+\item While conflict resolution is important, overeager resolution is bad.
 \item In a distributed system, conflicts occur even when the context
   of the system suggests that they should not.
 \item While events are a good basis for persistence, it is still a
@@ -721,8 +725,8 @@ key lessons from the Lokalisierung project:
   current state.  Some indexing of the facts/events may be sufficient.
 \item The database had uniqueness requirements that we had not
   encoded as constraints---we should have.
-\item Versioning the synchronization protocol from the beginning was
-  instrumental in being able to evolve it over time. 
+\item Versioning the synchronization protocol from the beginning
+  allowed us to evolve it over time. 
 \end{itemize}
 
 \begin{acks}
