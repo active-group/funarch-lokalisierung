@@ -43,15 +43,15 @@
 
 \begin{abstract}
   We have been developing a distributed application called
-  \textit{Lokalisierung} using functional programming in 2015.
-  Lokalisierung configures automatically mobiles devices in an a large
-  organization of auto-inspection shops. It uses peer-to-peer
+  \textit{Lokalisierung} using functional programming since 2015.
+  Lokalisierung automatically configures mobiles devices in an a large
+  organization of car-inspection shops. It uses peer-to-peer
   synchronization to distribute configuration data among the devices,
   without the use of a central server.  This paper describes the
   original design and evolution of the system.  Specifically, we
   highlight how the event-based architecture supports synchronization
   but also enables flexibility for changes after the original rollout
-  such as undoing configuration changes, and database thin out.  We
+  such as undoing configuration changes, and database thinning.  We
   also reflect on some design and implementation mistakes we made during its
   10-year development.
 \end{abstract}
@@ -94,10 +94,10 @@
 In 2015, we (that is, Active Group, a small software consultancy in
 Germany that uses functional programming for all of our projects) were
 tasked with implementing an application for a large
-auto-inspection-shop organization for configuring its new fleet of
+car-inspection-shop organization for configuring its new fleet of
 over 1000 mobile devices.
 
-Each auto-inspection shop has multiple lanes.
+Each car-inspection shop has multiple lanes.
 At the end of each lane sits a desk closet with a printer
 and inspection equipment.  Previously, the closet
 had also contained a desktop PC permanently hooked up to this
@@ -108,7 +108,7 @@ between the lanes of a single shop and also between shops.
 
 Each time a MEG operates in a different lane, it needs to (wirelessly)
 connect to
-the equipment at that lane. However, various pieces of software inspection needed
+the equipment at that lane. However, various pieces of inspection software needed
 reconfiguring. Previously, this had been a laborious manual process
 that involved typing in MAC addresses, opening the printer
 configuration dialog etc.
@@ -119,9 +119,8 @@ MEG needs to know the configuration of each place, which also changes
 as new shops get launched and equipment gets replaced.  The
 organization lacked the infrastructure to operate a central server.
 Getting the data live from such a server would have been unrealistic
-anyway---auto-shop WiFi is not the most reliable, and the
-organization's network did not have enough capacity to support
-Lokalisierung.
+anyway---car-shop WiFi is not the most reliable, and the
+organization's network did not have enough capacity.
 
 We designed an \textit{append-only} data layer that stores
 \textit{facts}, as opposed to traditional state-based databases. This
@@ -146,7 +145,7 @@ bandwidth means that each MEG needs to store and access configuration
 data locally. Moreover, the MEGs need to synchronize.
 This exposes Lokalisierung to the \textit{CAP
   theorem}~\cite{CAP}, which puts limits on distributed databases
-which store mutable state.
+that store mutable state.
 
 Here is the problem: A lane is configured to be associated with
 printer $A$, which breaks.  A user changes the configuration to point
@@ -199,8 +198,8 @@ CREATE TABLE hashes (
   FOREIGN KEY(key_hash) REFERENCES kv(hash));
 \end{verbatim}
 %
-The \texttt{guid} field is a unique id that identifies the subject of
-a configuration setting, typically a specific auto shop or lane.  The
+The \texttt{guid} field contains a unique id that identifies the subject of
+a configuration setting, typically a specific car shop or lane.  The
 \texttt{property} identifies a particular setting, such as
 \texttt{printerconfiguration}.  Each fact comes with
 metadata in JSON format noting user, machine, and time.
@@ -314,7 +313,7 @@ synchronization is necessary. Otherwise, both sides descend a
 level, and each sends its hashes to the other side as potential
 candidates. The hashes that agree can be removed from the
 candidates, and the algorithm descends to the next level only from the
-candidates that remain. When it finally reaches the lowest level, the remaining
+candidates that remain. When the algorithm finally reaches the lowest level, the remaining
 candidates identify those hashes that need to be transmitted to the
 other side.
 
@@ -376,13 +375,13 @@ for the next round, or the blocks received from the other side.
 
 The implementation of \texttt{synchronizationRound} is fairly
 involved, and many mistakes were made implementing it. However, the principal
-correctness of synchronization is a single QuickCheck
+correctness criterion of synchronization is a single QuickCheck
 property~\cite{QuickCheck2000} shown in
 Figure~\ref{fig:sync-quickcheck}.  The \texttt{check\-Synchronize\-Worked}
 function takes four sets of blocks, \texttt{blocks1} and
 \texttt{blocks1'} being the blocks present and received on one side,
 and \texttt{blocks2} and \texttt{blocks2'} on the other side.  This
-was the main test for validating the implementation before its
+has been the main test for validating the implementation before its
 original deployment in 2015, and no bugs have been detected since.
 
 \begin{figure*}[tb]
@@ -454,11 +453,11 @@ type Val<'a> when 'a : comparison =
 %
 During initial development, we assumed users would change settings
 mostly when in physical proximity to the lanes affected, and
-immediately propagate them throughout the auto shop, making such
+immediately propagate them throughout the car shop, making such
 conflicts rare.
 Therefore, we assumed such conflics could be resolved on the spot.  We
 made Lokalisierung detect conflicts after synchronization and display
-a dialog requiring users to resolve it.  (The \texttt{WithMeta} type
+a dialog requiring users to resolve them.  (The \texttt{WithMeta} type
 attaches the metadata from the append-only database, allowing the
 dialog to display information about who made a conflicting setting,
 when and and where.)
@@ -477,7 +476,7 @@ synchronization, creating two distinct resolution facts. These would be
 exchanged on the next synchronization, creating another conflicts, and
 so on, creating an avalanche of facts.  Fortunately, this was detected
 within a few minutes of deployment and stopped.  The lesson here was
-to now create synthetic facts ever.
+to not create synthetic facts ever.
 We ultimately settled on the following conflict strategy:
 %
 \begin{itemize}
@@ -595,10 +594,10 @@ CREATE TABLE hashes (
 %
 With this new schema, Lokalisierung could remove facts from the
 database by just deleting them from \texttt{kv}. We settled on deleting
-facts that had been long obsoleted---before a certain date. The date
+facts that had been long obsoleted---beyond a certain age. The date
 of a fact's creating were recorded in the \texttt{meta} field of the
 \texttt{kv} table as a field in a JSON object, which SQLite
-fortunately can access directly.  Consequently, thinning out can be
+fortunately can access directly.  Consequently, thinning can be
 done with a single, quite fast, SQL \texttt{DELETE}:
 %
 \begin{verbatim}
@@ -630,7 +629,7 @@ to the hash code of a fact, so we could not simply delete those
 entries.
 
 This problem was compounded by another error made when we implemented
-the thinning-out procedure---we would use this SQL to insert new
+the thinning procedure---we would use this SQL to insert new
 entries into \texttt{hashes}:
 %
 \begin{verbatim}
